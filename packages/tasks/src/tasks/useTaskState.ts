@@ -27,12 +27,12 @@ type BettererTaskAction =
     }
   | {
       type: 'log';
-      data: BettererTaskLog;
+      data: BettererTaskLogs;
     };
 
 type BettererTaskStateAPI = BettererTasksStateAPI & {
-  status(status: BettererTaskLog): Promise<void>;
-  log(status: BettererTaskLog): Promise<void>;
+  status(status: BettererTaskLog): void;
+  log(status: BettererTaskLogs): void;
 };
 
 export function useTaskState(task: BettererTask): [BettererTaskState, BettererTaskStateAPI] {
@@ -47,10 +47,10 @@ export function useTaskState(task: BettererTask): [BettererTaskState, BettererTa
       tasks.start();
     },
     status(status: BettererTaskLog) {
-      return Promise.resolve(dispatch({ type: 'status', data: status }));
+      dispatch({ type: 'status', data: status });
     },
-    log(log: BettererTaskLog) {
-      return Promise.resolve(dispatch({ type: 'log', data: log }));
+    log(logs: BettererTaskLogs) {
+      dispatch({ type: 'log', data: logs });
     },
     stop() {
       dispatch({ type: 'stop' });
@@ -95,7 +95,7 @@ function reducer(state: BettererTaskState, action: BettererTaskAction): Betterer
     case 'log': {
       return {
         ...state,
-        messageLogs: [...state.messageLogs, action.data]
+        messageLogs: [...state.messageLogs, ...action.data]
       };
     }
     case 'stop': {

@@ -13,6 +13,7 @@ const DEBOUNCE_TIME = 200;
 
 export class BettererRunnerΩ implements BettererRunner {
   private _context: BettererContextΩ | null = null;
+  private _contextEnd: ((write: boolean) => Promise<void>) | null = null;
   private _jobs: BettererRunnerJobs = [];
   private _running: Promise<BettererSummary> | null = null;
 
@@ -34,7 +35,7 @@ export class BettererRunnerΩ implements BettererRunner {
     }
 
     this._context = new BettererContextΩ(config, reporter);
-    await this._context.start();
+    this._contextEnd = this._context.start();
     return this._context;
   }
 
@@ -62,9 +63,9 @@ export class BettererRunnerΩ implements BettererRunner {
   public async stop(): Promise<BettererSummary>;
   public async stop(force?: true): Promise<BettererSummary | null> {
     try {
-      assert(this._running && this._context);
+      assert(this._running && this._contextEnd);
       const summary = await this._running;
-      await this._context.end(true);
+      await this._contextEnd(true);
       return summary;
     } catch (e) {
       if (force) {
@@ -101,7 +102,6 @@ export class BettererRunnerΩ implements BettererRunner {
           runs.map(async (run) => {
             const runΩ = run as BettererRunΩ;
             await this._runTest(runΩ, config.update);
-            await runΩ.end();
           })
         );
       }, filePaths);
@@ -115,7 +115,7 @@ export class BettererRunnerΩ implements BettererRunner {
     const runΩ = run as BettererRunΩ;
     const { test } = runΩ;
 
-    await runΩ.start();
+    const status = runΩ.start();
 
     if (run.isSkipped) {
       return;
@@ -125,36 +125,30 @@ export class BettererRunnerΩ implements BettererRunner {
     try {
       result = new BettererResultΩ(await test.test(runΩ));
     } catch (e) {
-      await runΩ.failed(e);
+      await status.failed(e);
       return;
     }
-    runΩ.ran();
 
     const goalComplete = await test.goal(result.value);
 
     if (runΩ.isNew) {
-      runΩ.new(result, goalComplete);
-      return;
+      return await status.new(result, goalComplete);
     }
 
     const comparison = await test.constraint(result.value, runΩ.expected.value);
 
     if (comparison === BettererConstraintResult.same) {
-      runΩ.same(result);
-      return;
+      return await status.same(result);
     }
 
     if (comparison === BettererConstraintResult.better) {
-      runΩ.better(result, goalComplete);
-      return;
+      return status.better(result, goalComplete);
     }
 
     if (update) {
-      runΩ.update(result);
-      return;
+      return status.update(result);
     }
 
-    runΩ.worse(result);
-    return;
+    return status.worse(result);
   }
 }

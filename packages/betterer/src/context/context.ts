@@ -31,15 +31,24 @@ export class BettererContextΩ implements BettererContext {
 
   constructor(public readonly config: BettererConfig, private _reporter: BettererReporterΩ) {
     this._results = new BettererResultsΩ(this.config.resultsPath);
-    this._lifecycle = defer();
+    this._lifecycle = defer<BettererSummaries>();
   }
 
   public get lifecycle(): Promise<BettererSummaries> {
     return this._lifecycle.promise;
   }
 
-  public async start(): Promise<void> {
-    await this._reporter.contextStart(this, this.lifecycle);
+  public start(): (write: boolean) => Promise<void> {
+    void this._reporter.contextStart(this, this.lifecycle);
+    return async (write: boolean): Promise<void> => {
+      assert(this._summaries);
+      this._lifecycle.resolve(this._summaries);
+      await this._reporter.contextEnd(this, this._summaries);
+      if (write) {
+        const last = this._summaries[this._summaries.length - 1];
+        await this._results.write(last.result);
+      }
+    };
   }
 
   public async run(runner: BettererRunner, filePaths: BettererFilePaths = []): Promise<BettererSummary> {
@@ -67,25 +76,24 @@ export class BettererContextΩ implements BettererContext {
           return new BettererRunΩ(this._reporter, name, config, expected, baseline, filePaths, isSkipped, isObsolete);
         })
     );
-    await this._reporter.runsStart(runs, filePaths);
-    this._running = runner(runs);
-    await this._running;
+    const runsLifecycle = defer<BettererSummary>();
+    const runsStart = this._reporter.runsStart(runs, filePaths, runsLifecycle.promise);
+    try {
+      this._running = runner(runs);
+      await this._running;
+    } catch (error) {
+      runsLifecycle.reject(error);
+      await runsStart;
+      await this._reporter.runsError(runs, filePaths, error);
+      throw error;
+    }
     const result = await this._results.print(runs);
     const expected = await this._results.read();
     const summary = new BettererSummaryΩ(runs, result, expected);
     this._summaries.push(summary);
+    runsLifecycle.resolve(summary);
     await this._reporter.runsEnd(summary, filePaths);
     return summary;
-  }
-
-  public async end(write: boolean): Promise<void> {
-    assert(this._summaries);
-    this._lifecycle.resolve(this._summaries);
-    await this._reporter.contextEnd(this, this._summaries);
-    if (write) {
-      const last = this._summaries[this._summaries.length - 1];
-      await this._results.write(last.result);
-    }
   }
 
   public async error(error: BettererError): Promise<void> {

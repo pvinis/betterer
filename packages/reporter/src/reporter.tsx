@@ -12,7 +12,6 @@ import { BettererError } from '@betterer/errors';
 import { Instance, render } from 'ink';
 
 import { Error, Reporter } from './components';
-import { BettererReporterData, BettererReporterRenderer } from './types';
 
 export const reporter: BettererReporter = createReporter();
 
@@ -21,30 +20,33 @@ function createReporter(): BettererReporter {
     debug: process.env.NODE_ENV === 'test'
   };
 
-  let renderer: BettererReporterRenderer;
+  let context: BettererContext;
+  let app: Instance;
 
   return {
-    configError(_: unknown, error: BettererError): Promise<void> {
-      return renderError(error);
+    async configError(_: unknown, error: BettererError): Promise<void> {
+      await renderError(error);
     },
-    async contextStart(context: BettererContext): Promise<void> {
-      renderer = createRenderer(context);
-      await renderer.render();
-    },
-    async contextEnd(_: BettererContext, summaries: BettererSummaries): Promise<void> {
-      if (summaries.length > 1) {
-        await renderer.render({ summaries });
+    async contextStart(c: BettererContext, lifecycle: Promise<BettererSummaries>): Promise<void> {
+      context = c;
+      app = render(<Reporter context={context} />, RENDER_OPTIONS);
+      try {
+        const summaries = await lifecycle;
+        if (summaries.length > 1) {
+          app.rerender(<Reporter context={context} summaries={summaries} />);
+        }
+      } catch (error) {
+        await renderError(error);
       }
-      renderer.stop();
     },
-    contextError(_: BettererContext, error: BettererError): Promise<void> {
-      return renderError(error);
-    },
-    runsStart(runs: BettererRuns, filePaths: BettererFilePaths): Promise<void> {
-      return renderer.render({ filePaths, runs });
-    },
-    runsEnd(summary: BettererSummary, filePaths: BettererFilePaths): Promise<void> {
-      return renderer.render({ filePaths, runs: summary.runs, summary });
+    async runsStart(
+      runs: BettererRuns,
+      filePaths: BettererFilePaths,
+      lifecycle: Promise<BettererSummary>
+    ): Promise<void> {
+      app.rerender(<Reporter context={context} filePaths={filePaths} runs={runs} />);
+      const summary = await lifecycle;
+      app.rerender(<Reporter context={context} filePaths={filePaths} runs={summary.runs} summary={summary} />);
     }
   };
 
@@ -52,24 +54,4 @@ function createReporter(): BettererReporter {
     const errorApp = render(<Error error={error} />, RENDER_OPTIONS);
     await errorApp.waitUntilExit();
   }
-
-  function createRenderer(context: BettererContext): BettererReporterRenderer {
-    let app: Instance;
-
-    return {
-      async render(data: BettererReporterData = {}): Promise<void> {
-        app?.clear();
-        const finalProps = { ...data, context };
-        app = render(<Reporter {...finalProps} />, RENDER_OPTIONS);
-        await tick();
-      },
-      stop() {
-        app.unmount();
-      }
-    };
-  }
-}
-
-function tick(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
 }

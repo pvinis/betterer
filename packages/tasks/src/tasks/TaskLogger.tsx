@@ -7,7 +7,7 @@ import { Box, Text } from 'ink';
 import { BettererErrorLog } from '../error-log';
 import { BettererTaskStatus } from './status';
 import { useTaskState } from './useTaskState';
-import { BettererTask, BettererTaskLog } from './types';
+import { BettererTask, BettererTaskLog, BettererTaskLogs } from './types';
 
 export type BettererTaskLoggerProps = {
   task: BettererTask;
@@ -26,34 +26,46 @@ export const BettererTaskLogger: FC<BettererTaskLoggerProps> = memo(function Bet
         return;
       }
 
+      const logs: BettererTaskLogs = [];
+
+      async function statusAsync(status: BettererTaskLog): Promise<void> {
+        taskApi.status(status);
+        return Promise.resolve();
+      }
+
+      async function logAsync(log: BettererTaskLog): Promise<void> {
+        logs.push(log);
+        return Promise.resolve();
+      }
+
       async function statusError(status: string): Promise<void> {
-        await taskApi.status(['🔥', 'redBright', status]);
+        await statusAsync(['🔥', 'redBright', status]);
       }
       async function statusProgress(status: string): Promise<void> {
-        await taskApi.status(['🤔', 'whiteBright', status]);
+        await statusAsync(['🤔', 'whiteBright', status]);
       }
       async function statusSuccess(status: string): Promise<void> {
-        await taskApi.status(['✅', 'greenBright', status]);
+        await statusAsync(['✅', 'greenBright', status]);
       }
 
       async function logCode(codeInfo: BettererLoggerCodeInfo): Promise<void> {
         const codeFrame = codeΔ(codeInfo);
-        await taskApi.log(['💻', 'whiteBright', codeFrame]);
+        await logAsync(['💻', 'whiteBright', codeFrame]);
       }
       async function logDebug(log: string): Promise<void> {
-        await taskApi.log(['🤯', 'blueBright', log]);
+        await logAsync(['🤯', 'blueBright', log]);
       }
       async function logError(log: string): Promise<void> {
-        await taskApi.log(['🔥', 'redBright', log]);
+        await logAsync(['🔥', 'redBright', log]);
       }
       async function logInfo(log: string): Promise<void> {
-        await taskApi.log(['💭', 'gray', log]);
+        await logAsync(['💭', 'gray', log]);
       }
       async function logSuccess(log: string): Promise<void> {
-        await taskApi.log(['✅', 'greenBright', log]);
+        await logAsync(['✅', 'greenBright', log]);
       }
       async function logWarning(log: string): Promise<void> {
-        await taskApi.log(['🚨', 'yellowBright', log]);
+        await logAsync(['🚨', 'yellowBright', log]);
       }
 
       taskApi.start();
@@ -67,13 +79,14 @@ export const BettererTaskLogger: FC<BettererTaskLoggerProps> = memo(function Bet
           success: logSuccess,
           warn: logWarning
         });
+        taskApi.log(logs);
 
         if (typeof result === 'string') {
           await statusSuccess(result);
         } else if (!result) {
           await statusSuccess('done!');
         } else {
-          await taskApi.status(result);
+          taskApi.status(result);
         }
         taskApi.stop();
       } catch (error) {
