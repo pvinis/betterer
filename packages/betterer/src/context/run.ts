@@ -6,7 +6,7 @@ import { BettererResult } from '../results';
 import { BettererFilePaths } from '../runner';
 import { BettererDiff, BettererTestConfig } from '../test';
 import { Defer, defer } from '../utils';
-import { BettererDelta, BettererRun } from './types';
+import { BettererDelta, BettererRun, BettererRunStarted } from './types';
 
 enum BettererRunStatus {
   better,
@@ -131,10 +131,14 @@ export class BettererRunΩ implements BettererRun {
     return this._test;
   }
 
-  public start() {
+  public ran(): void {
+    this._isRan = true;
+  }
+
+  public start(): BettererRunStarted {
     const startTime = Date.now();
     this._isExpired = startTime >= this._test.deadline;
-    const runStartReport = this._reporter.runStart(this, this._lifecycle.promise);
+    const reportRunStart = this._reporter.runStart(this, this._lifecycle.promise);
     this._timestamp = startTime;
 
     const end = async () => {
@@ -143,10 +147,8 @@ export class BettererRunΩ implements BettererRun {
         const resultValue = !this._result ? null : this._result.value;
         this._delta = await this._test.progress(baselineValue, resultValue);
       }
-
-      this._isRan = this._status !== BettererRunStatus.failed;
       this._lifecycle.resolve();
-      await runStartReport;
+      await reportRunStart;
       await this._reporter.runEnd(this);
     };
 
@@ -159,15 +161,19 @@ export class BettererRunΩ implements BettererRun {
         assert.strictEqual(this._status, BettererRunStatus.pending);
         this._status = BettererRunStatus.failed;
         this._lifecycle.reject(error);
+        await reportRunStart;
         await this._reporter.runError(this, error);
         await end();
       },
-      new: async (result: BettererResult, isComplete: boolean): Promise<void> => {
+      neww: async (result: BettererResult, isComplete: boolean): Promise<void> => {
         this._updateResult(BettererRunStatus.new, result, isComplete);
         await end();
       },
       same: async (result: BettererResult): Promise<void> => {
         this._updateResult(BettererRunStatus.same, result);
+        await end();
+      },
+      skipped: async (): Promise<void> => {
         await end();
       },
       update: async (result: BettererResult): Promise<void> => {
